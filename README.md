@@ -1,2 +1,2 @@
 # fraud-guard
-anti-fraud rules application engine.
+A rule-based fraud detection engine

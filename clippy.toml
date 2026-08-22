@@ -1,0 +1,3 @@
+allowed-dotfiles = []
+disallowed-names = []
+cognitive-complexity-threshold = 15

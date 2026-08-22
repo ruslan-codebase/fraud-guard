@@ -1,0 +1,11 @@
+[alias]
+check-all = "clippy --all-targets --all-features -- -D warnings"
+test-all = "test --all-features"
+
+[build]
+rustflags = [
+    "-D", "warnings" # treat warnings as errors
+]
+
+[env]
+RUST_LOG = "fraud_guard=debug,info"
