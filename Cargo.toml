@@ -1,12 +1,24 @@
-[package]
-name = "fraud-guard"
+[workspace]
+members = [
+    "crates/domain",
+    "crates/storage",
+    "crates/api",
+    "crates/app",
+]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 authors = ["Ruslan Filimonov"]
 license = "BSD-3-Clause"
-description = "A rule-based fraud detection engine"
 repository = "https://github.com/ruslan-codebase/fraud-guard"
 readme = "README.md"
+
+[workspace.dependencies]
+domain = { path = "crates/domain" }
+storage = { path = "crates/storage" }
+api = { path = "crates/api" }
 
 [profile.release]
 opt-level = 3

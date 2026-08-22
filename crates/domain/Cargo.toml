@@ -1,0 +1,8 @@
+[package]
+name = "fraud-guard-domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Domain types and traits for fraud-guard"

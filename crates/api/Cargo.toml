@@ -1,0 +1,10 @@
+[package]
+name = "fraud-guard-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "entrypoints and apis for fraud-guard"
+
+[dependencies]
+fraud-guard-domain = { path = "../domain" }

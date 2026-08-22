@@ -1,0 +1,13 @@
+[package]
+name = "fraud-guard-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Application entry point - wires everything together"
+
+[dependencies]
+fraud-guard-domain = { path = "../domain" }
+fraud-guard-storage = { path = "../storage" }
+fraud-guard-api = { path = "../api" }

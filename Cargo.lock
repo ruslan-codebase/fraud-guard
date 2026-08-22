@@ -3,5 +3,28 @@
 version = 4
 
 [[package]]
-name = "fraud-guard"
+name = "fraud-guard-api"
 version = "0.1.0"
+dependencies = [
+ "fraud-guard-domain",
+]
+
+[[package]]
+name = "fraud-guard-app"
+version = "0.1.0"
+dependencies = [
+ "fraud-guard-api",
+ "fraud-guard-domain",
+ "fraud-guard-storage",
+]
+
+[[package]]
+name = "fraud-guard-domain"
+version = "0.1.0"
+
+[[package]]
+name = "fraud-guard-storage"
+version = "0.1.0"
+dependencies = [
+ "fraud-guard-domain",
+]
