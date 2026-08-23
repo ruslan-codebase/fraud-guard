@@ -20,6 +20,9 @@ domain = { path = "crates/domain" }
 storage = { path = "crates/storage" }
 api = { path = "crates/api" }
 
+serde_json = "1.0"
+chrono = "0.4"
+
 [profile.release]
 opt-level = 3
 lto = true

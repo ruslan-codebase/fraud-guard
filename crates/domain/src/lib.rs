@@ -1,1 +1,3 @@
-// domain types and traits for fraud-guard
+pub mod rule;
+
+pub use rule::{Rule, RuleType};

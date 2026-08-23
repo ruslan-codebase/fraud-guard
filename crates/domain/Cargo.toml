@@ -6,3 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Domain types and traits for fraud-guard"
+
+[dependencies]
+serde_json = { workspace = true }
+chrono = { workspace = true }
