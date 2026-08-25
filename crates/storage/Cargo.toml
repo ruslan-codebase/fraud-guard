@@ -9,3 +9,6 @@ description = "Storage implementations for fraud-guard"
 
 [dependencies]
 fraud-guard-domain = { path = "../domain" }
+sqlx = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }

@@ -91,6 +91,20 @@ impl fmt::Display for Currency {
     }
 }
 
+impl FromStr for Currency {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "RUB" => Ok(Currency::Rub),
+            "CNY" => Ok(Currency::Cny),
+            "USD" => Ok(Currency::Usd),
+            "EUR" => Ok(Currency::Eur),
+            _ => Err(DomainError::Validation(format!("Invalid currency: {}", s))),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TransactionRequest {
     pub id: TransactionId,

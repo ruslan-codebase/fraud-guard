@@ -68,7 +68,7 @@ impl Rule {
                 let params: AmountLimitParams = serde_json::from_value(self.params.clone())
                     .map_err(|e| DomainError::ParamParse {
                         rule_code: self.code.clone(),
-                        source: e,
+                        message: e.to_string(),
                     })?;
 
                 if tx_req.amount > params.max_amount {
@@ -88,7 +88,7 @@ impl Rule {
                     serde_json::from_value(self.params.clone()).map_err(|e| {
                         DomainError::ParamParse {
                             rule_code: self.code.clone(),
-                            source: e,
+                            message: e.to_string(),
                         }
                     })?;
 
@@ -193,7 +193,7 @@ mod tests {
         match err {
             DomainError::ParamParse {
                 rule_code,
-                source: _,
+                message: _,
             } => {
                 assert_eq!(rule_code, "TEST001");
             }
@@ -229,7 +229,7 @@ mod tests {
         match err {
             DomainError::ParamParse {
                 rule_code,
-                source: _,
+                message: _,
             } => {
                 assert_eq!(rule_code, "TEST001");
             }
