@@ -9,4 +9,8 @@ description = "Domain types and traits for fraud-guard"
 
 [dependencies]
 serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 chrono = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
