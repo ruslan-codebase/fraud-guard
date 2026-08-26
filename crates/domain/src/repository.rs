@@ -1,4 +1,4 @@
-use crate::{AccountId, DomainError, Rule, TransactionRequest};
+use crate::{AccountId, Decision, DomainError, Rule, TransactionId, TransactionRequest};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -12,7 +12,16 @@ pub trait TransactionRepository: Send + Sync {
     ) -> Result<Vec<TransactionRequest>, DomainError>;
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 pub trait RuleRepository: Send + Sync {
     async fn load_active_rules(&self) -> Result<Vec<Rule>, DomainError>;
+}
+
+#[async_trait]
+pub trait DecisionRepository: Send + Sync {
+    async fn store_decision(
+        &self,
+        transaction_id: &TransactionId,
+        decision: &Decision,
+    ) -> Result<(), DomainError>;
 }
