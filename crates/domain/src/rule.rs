@@ -1,11 +1,24 @@
 use crate::{DomainError, TransactionRepository, TransactionRequest};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleType {
     Threshold,
     Blacklist,
+}
+
+impl FromStr for RuleType {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Threshold" => Ok(RuleType::Threshold),
+            "Blacklist" => Ok(RuleType::Blacklist),
+            _ => Err(DomainError::Validation(format!("Unknown rule type: {}", s))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
