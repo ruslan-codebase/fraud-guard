@@ -11,3 +11,11 @@ description = "Application entry point - wires everything together"
 fraud-guard-domain = { path = "../domain" }
 fraud-guard-storage = { path = "../storage" }
 fraud-guard-api = { path = "../api" }
+
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+dotenvy = { workspace = true }
