@@ -65,10 +65,10 @@ impl Rule {
         true
     }
 
-    pub fn evaluate(
+    pub async fn evaluate(
         &self,
         tx_req: &TransactionRequest,
-        _repo: &impl TransactionRepository,
+        _repo: &dyn TransactionRepository,
     ) -> Result<Verdict, DomainError> {
         if !self.is_active_at(tx_req.timestamp) {
             return Ok(Verdict::Skipped {
@@ -180,19 +180,19 @@ mod tests {
         rule
     }
 
-    #[test]
-    fn threshold_passed() {
+    #[tokio::test]
+    async fn threshold_passed() {
         let rule = active_rule(RuleType::Threshold, serde_json::json!({"max_amount": 1000}));
         let tx_req = test_transaction(500);
-        let verdict = rule.evaluate(&tx_req, &MockRepo).unwrap();
+        let verdict = rule.evaluate(&tx_req, &MockRepo).await.unwrap();
         assert_eq!(verdict, Verdict::Passed);
     }
 
-    #[test]
-    fn threshold_triggered() {
+    #[tokio::test]
+    async fn threshold_triggered() {
         let rule = active_rule(RuleType::Threshold, serde_json::json!({"max_amount": 1000}));
         let tx_req = test_transaction(1500);
-        let verdict = rule.evaluate(&tx_req, &MockRepo).unwrap();
+        let verdict = rule.evaluate(&tx_req, &MockRepo).await.unwrap();
         match verdict {
             Verdict::Triggered { code, reason } => {
                 assert_eq!(code, "TEST001");
@@ -202,14 +202,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn threshold_invalid_params() {
+    #[tokio::test]
+    async fn threshold_invalid_params() {
         let rule = active_rule(
             RuleType::Threshold,
             serde_json::json!({"wrong_field": 1000}),
         );
         let tx_req = test_transaction(500);
-        let err = rule.evaluate(&tx_req, &MockRepo).unwrap_err();
+        let err = rule.evaluate(&tx_req, &MockRepo).await.unwrap_err();
         match err {
             DomainError::ParamParse {
                 rule_code,
@@ -221,14 +221,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn blacklist_triggered() {
+    #[tokio::test]
+    async fn blacklist_triggered() {
         let rule = active_rule(
             RuleType::Blacklist,
             serde_json::json!({"blacklisted_accounts": ["1111222233334444"]}),
         );
         let tx_req = test_transaction(100);
-        let verdict = rule.evaluate(&tx_req, &MockRepo).unwrap();
+        let verdict = rule.evaluate(&tx_req, &MockRepo).await.unwrap();
         match verdict {
             Verdict::Triggered { code, reason } => {
                 assert_eq!(code, "TEST001");
@@ -238,14 +238,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn blacklist_invalid_params() {
+    #[tokio::test]
+    async fn blacklist_invalid_params() {
         let rule = active_rule(
             RuleType::Blacklist,
             serde_json::json!({"wrong_field": ["1111"]}),
         );
         let tx_req = test_transaction(100);
-        let err = rule.evaluate(&tx_req, &MockRepo).unwrap_err();
+        let err = rule.evaluate(&tx_req, &MockRepo).await.unwrap_err();
         match err {
             DomainError::ParamParse {
                 rule_code,
@@ -257,11 +257,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn inactive_rule_skipped() {
+    #[tokio::test]
+    async fn inactive_rule_skipped() {
         let rule = inactive_rule(RuleType::Threshold, serde_json::json!({"max_amount": 1000}));
         let tx_req = test_transaction(500);
-        let verdict = rule.evaluate(&tx_req, &MockRepo).unwrap();
+        let verdict = rule.evaluate(&tx_req, &MockRepo).await.unwrap();
         match verdict {
             Verdict::Skipped { reason } => {
                 assert_eq!(reason, "Rule is not active at this time");
@@ -270,12 +270,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rule_not_yet_valid_skipped() {
+    #[tokio::test]
+    async fn rule_not_yet_valid_skipped() {
         let mut rule = active_rule(RuleType::Threshold, serde_json::json!({"max_amount": 1000}));
         rule.valid_from = Utc::now() + Duration::days(1);
         let tx_req = test_transaction(500);
-        let verdict = rule.evaluate(&tx_req, &MockRepo).unwrap();
+        let verdict = rule.evaluate(&tx_req, &MockRepo).await.unwrap();
         match verdict {
             Verdict::Skipped { reason } => {
                 assert_eq!(reason, "Rule is not active at this time");
@@ -284,12 +284,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rule_expired_skipped() {
+    #[tokio::test]
+    async fn rule_expired_skipped() {
         let mut rule = active_rule(RuleType::Threshold, serde_json::json!({"max_amount": 1000}));
         rule.valid_until = Some(Utc::now() - Duration::days(1));
         let tx_req = test_transaction(500);
-        let verdict = rule.evaluate(&tx_req, &MockRepo).unwrap();
+        let verdict = rule.evaluate(&tx_req, &MockRepo).await.unwrap();
         match verdict {
             Verdict::Skipped { reason } => {
                 assert_eq!(reason, "Rule is not active at this time");
