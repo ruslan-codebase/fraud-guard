@@ -138,6 +138,13 @@ mod tests {
         ) -> Result<Vec<TransactionRequest>, DomainError> {
             Ok(vec![])
         }
+
+        async fn insert_transaction(
+            &self,
+            _tx_req: &TransactionRequest,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
     }
 
     fn test_transaction(amount: i64) -> TransactionRequest {

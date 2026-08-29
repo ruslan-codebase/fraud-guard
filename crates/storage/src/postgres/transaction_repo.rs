@@ -80,4 +80,26 @@ impl TransactionRepository for PostgresTransactionRepository {
         }
         Ok(requests)
     }
+
+    async fn insert_transaction(&self, tx_req: &TransactionRequest) -> Result<(), DomainError> {
+        sqlx::query!(
+            r#"
+            INSERT INTO transactions (transaction_id, source_account, destination_account, amount, currency, timestamp)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+            tx_req.id.as_uuid(),
+            tx_req.source_account.as_str(),
+            tx_req.destination_account.as_str(),
+            tx_req.amount,
+            tx_req.currency.to_string(),
+            tx_req.timestamp,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DomainError::Repository {
+            operation: "insert transaction into DB",
+            message:  e.to_string()
+        })?;
+        Ok(())
+    }
 }

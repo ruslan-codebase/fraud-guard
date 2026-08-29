@@ -10,6 +10,8 @@ pub trait TransactionRepository: Send + Sync {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     ) -> Result<Vec<TransactionRequest>, DomainError>;
+
+    async fn insert_transaction(&self, tx_req: &TransactionRequest) -> Result<(), DomainError>;
 }
 
 #[async_trait]
