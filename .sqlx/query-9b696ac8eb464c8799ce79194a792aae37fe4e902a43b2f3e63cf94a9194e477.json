@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO decisions (transaction_id, decision)\n            VALUES ($1, $2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b696ac8eb464c8799ce79194a792aae37fe4e902a43b2f3e63cf94a9194e477"
+}

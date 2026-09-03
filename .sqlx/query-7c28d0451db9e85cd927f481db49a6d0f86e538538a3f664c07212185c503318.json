@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                transaction_id,\n                source_account,\n                destination_account,\n                amount,\n                currency,\n                timestamp\n            FROM transactions\n            WHERE source_account = $1\n              AND timestamp >= $2\n              AND timestamp < $3\n            ORDER BY timestamp ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "transaction_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "source_account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "source_account"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "destination_account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "destination_account"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "amount",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "amount"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "currency",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "currency"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "timestamp",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "timestamp"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7c28d0451db9e85cd927f481db49a6d0f86e538538a3f664c07212185c503318"
+}

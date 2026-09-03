@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                code,\n                rule_type,\n                params,\n                enabled,\n                priority,\n                valid_from,\n                valid_until\n            FROM rules\n            WHERE enabled = true\n              AND valid_from <= NOW()\n              AND (valid_until IS NULL OR valid_until > NOW())\n            ORDER BY priority DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rules",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rule_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rules",
+            "name": "rule_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "params",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "rules",
+            "name": "params"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "rules",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "priority",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "rules",
+            "name": "priority"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "valid_from",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "rules",
+            "name": "valid_from"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "valid_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "rules",
+            "name": "valid_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "2e8660bad6408852d0b9eb6a422624e3e3e2a66b3c08b2e90c500daa0d56c2b0"
+}
