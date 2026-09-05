@@ -1,1 +1,1 @@
-// entrypoints and apis for fraud-guard
+pub mod amqp;

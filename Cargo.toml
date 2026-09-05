@@ -35,9 +35,11 @@ sqlx = { version = "0.9", features = [
     "json",
 ] }
 tokio = { version = "1.53", features = ["full"] }
+tokio-stream = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
+lapin = "4.10"
 
 [profile.release]
 opt-level = 3
