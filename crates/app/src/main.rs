@@ -6,13 +6,12 @@ use actors::{EngineActor, SinkActor};
 use config::Config;
 use fraud_guard_api::amqp::ConsumerActor;
 use fraud_guard_api::amqp::CorrelationId;
-use fraud_guard_domain::DecisionRepository;
 use fraud_guard_domain::DomainError;
 use fraud_guard_domain::RuleRepository;
 use fraud_guard_domain::TransactionRepository;
-use fraud_guard_storage::postgres::{
-    PostgresDecisionRepository, PostgresRuleRepository, PostgresTransactionRepository,
-};
+use fraud_guard_storage::postgres::PostgresSinkRepository;
+use fraud_guard_storage::postgres::{PostgresRuleRepository, PostgresTransactionRepository};
+use fraud_guard_storage::sink_repo::SinkRepository;
 use rules_cache::start_rules_cache_refresh;
 
 use std::error;
@@ -35,8 +34,9 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
     let tx_repo: Arc<dyn TransactionRepository> =
         Arc::new(PostgresTransactionRepository::new(pool.clone()));
     let rule_repo: Arc<dyn RuleRepository> = Arc::new(PostgresRuleRepository::new(pool.clone()));
-    let decision_repo: Arc<dyn DecisionRepository> =
-        Arc::new(PostgresDecisionRepository::new(pool.clone()));
+    // let decision_repo: Arc<dyn DecisionRepository> =
+    //     Arc::new(PostgresDecisionRepository::new(pool.clone()));
+    let sink_repo: Arc<dyn SinkRepository> = Arc::new(PostgresSinkRepository::new(pool.clone()));
 
     let rules = rule_repo.load_active_rules().await?;
     let rules_arc = Arc::new(rules);
@@ -68,8 +68,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
     tokio::spawn(engine.run());
 
     let sink = SinkActor {
-        tx_repo: tx_repo.clone(),
-        decision_repo: decision_repo.clone(),
+        sink_repo: sink_repo.clone(),
         rx: sink_rx,
         ack_tx,
         shutdown_rx: shutdown_rx.clone(),
