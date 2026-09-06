@@ -11,6 +11,7 @@ pub struct EngineActor {
     pub repo: Arc<dyn TransactionRepository>,
     pub rx: mpsc::Receiver<(TransactionRequest, CorrelationId)>,
     pub sink_tx: mpsc::Sender<(TransactionRequest, Decision, CorrelationId)>,
+    pub shutdown_rx: watch::Receiver<()>,
 }
 
 impl EngineActor {
@@ -19,6 +20,10 @@ impl EngineActor {
 
         loop {
             tokio::select! {
+                _ = self.shutdown_rx.changed() => {
+                    info!("Shutdown signal received, exiting engine");
+                    break;
+                }
                 Some((tx, corr_id)) = self.rx.recv() => {
                     if let Err(e) = tx.validate() {
                         error!("Transaction validation failed: {}", e);
@@ -135,12 +140,14 @@ mod tests {
         )];
         let rules_arc = Arc::new(rules);
         let (_rules_tx, rules_rx) = watch::channel(rules_arc);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(());
 
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
             rx: rx_tx,
             sink_tx: sink_tx.clone(),
+            shutdown_rx,
         };
 
         tokio::spawn(engine.run());
@@ -149,7 +156,8 @@ mod tests {
         let corr_id: CorrelationId = 123;
         tx_tx.send((tx, corr_id)).await.unwrap();
 
-        let (received_tx, decision, _) = sink_rx.recv().await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), sink_rx.recv()).await;
+        let (received_tx, decision, _) = result.unwrap().unwrap();
         assert_eq!(received_tx.amount, 100);
         assert_eq!(decision, Decision::Accept);
 
@@ -168,12 +176,14 @@ mod tests {
         )];
         let rules_arc = Arc::new(rules);
         let (_rules_tx, rules_rx) = watch::channel(rules_arc);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(());
 
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
             rx: rx_tx,
             sink_tx: sink_tx.clone(),
+            shutdown_rx,
         };
 
         tokio::spawn(engine.run());
@@ -182,7 +192,8 @@ mod tests {
         let corr_id: CorrelationId = 123;
         tx_tx.send((tx, corr_id)).await.unwrap();
 
-        let (received_tx, decision, _) = sink_rx.recv().await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), sink_rx.recv()).await;
+        let (received_tx, decision, _) = result.unwrap().unwrap();
         assert_eq!(received_tx.amount, 100);
         match decision {
             Decision::Review { triggered_rules } => {
@@ -202,12 +213,14 @@ mod tests {
         let rules: Vec<Rule> = vec![];
         let rules_arc = Arc::new(rules);
         let (_rules_tx, rules_rx) = watch::channel(rules_arc);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(());
 
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
             rx: rx_tx,
             sink_tx: sink_tx.clone(),
+            shutdown_rx,
         };
 
         tokio::spawn(engine.run());
@@ -224,7 +237,8 @@ mod tests {
         let corr_id: CorrelationId = 123;
         tx_tx.send((tx, corr_id)).await.unwrap();
 
-        let (_received_tx, decision, _) = sink_rx.recv().await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), sink_rx.recv()).await;
+        let (_, decision, _) = result.unwrap().unwrap();
         match decision {
             Decision::Decline { reason } => {
                 assert!(reason.contains("Source and destination accounts must differ"));
@@ -245,12 +259,14 @@ mod tests {
         )];
         let rules_arc1 = Arc::new(rules1);
         let (rules_tx, rules_rx) = watch::channel(rules_arc1);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(());
 
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
             rx: rx_tx,
             sink_tx: sink_tx.clone(),
+            shutdown_rx,
         };
 
         tokio::spawn(engine.run());
@@ -258,7 +274,8 @@ mod tests {
         let tx1 = test_transaction(50);
         let corr_id1: CorrelationId = 123;
         tx_tx.send((tx1, corr_id1)).await.unwrap();
-        let (_, decision1, _) = sink_rx.recv().await.unwrap();
+        let result1 = tokio::time::timeout(std::time::Duration::from_secs(5), sink_rx.recv()).await;
+        let (_, decision1, _) = result1.unwrap().unwrap();
         assert_eq!(decision1, Decision::Accept);
 
         let rules2 = vec![create_rule(
@@ -273,7 +290,8 @@ mod tests {
         let tx2 = test_transaction(50);
         let corr_id2: CorrelationId = 456;
         tx_tx.send((tx2, corr_id2)).await.unwrap();
-        let (_, decision2, _) = sink_rx.recv().await.unwrap();
+        let result2 = tokio::time::timeout(std::time::Duration::from_secs(5), sink_rx.recv()).await;
+        let (_, decision2, _) = result2.unwrap().unwrap();
         match decision2 {
             Decision::Review { triggered_rules } => {
                 assert_eq!(triggered_rules.len(), 1);

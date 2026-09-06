@@ -47,12 +47,14 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
     let (engine_tx, engine_rx) = mpsc::channel(100);
     let (sink_tx, sink_rx) = mpsc::channel(100);
     let (ack_tx, ack_rx) = mpsc::channel::<(CorrelationId, Result<(), DomainError>)>(100);
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
 
     let consumer = ConsumerActor {
         amqp_url: config.amqp_url.clone(),
         queue_name: "transaction.evaluation".to_string(),
         engine_tx: engine_tx.clone(),
         ack_rx,
+        shutdown_rx: shutdown_rx.clone(),
     };
     tokio::spawn(consumer.run());
 
@@ -61,6 +63,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         repo: tx_repo.clone(),
         rx: engine_rx,
         sink_tx: sink_tx.clone(),
+        shutdown_rx: shutdown_rx.clone(),
     };
     tokio::spawn(engine.run());
 
@@ -69,6 +72,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         decision_repo: decision_repo.clone(),
         rx: sink_rx,
         ack_tx,
+        shutdown_rx: shutdown_rx.clone(),
     };
     tokio::spawn(sink.run());
 
@@ -76,7 +80,9 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         .await
         .expect("Failed to listen for shutdown signal");
     info!("Shutting down gracefully...");
+    let _ = shutdown_tx.send(());
 
     tokio::time::sleep(time::Duration::from_secs(2)).await;
+    info!("Shutdown complete");
     Ok(())
 }

@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::HashMap, error};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 use tracing::{error, info};
 
@@ -30,33 +30,50 @@ pub struct ConsumerActor {
     pub queue_name: String,
     pub engine_tx: mpsc::Sender<(TransactionRequest, CorrelationId)>,
     pub ack_rx: mpsc::Receiver<(CorrelationId, Result<(), DomainError>)>,
+    pub shutdown_rx: watch::Receiver<()>,
+}
+
+enum ConnectionResult {
+    Shutdown,
+    Disconnected,
 }
 
 impl ConsumerActor {
     pub async fn run(mut self) {
         let mut backoff = 1;
+        let mut shutdown_rx_clone = self.shutdown_rx.clone();
 
         loop {
-            info!("Attempting to connect to AMQP...");
-            match self.connect_and_consume().await {
-                Ok(_) => {
-                    info!("AMQP consumer diconnected, reconnecting in 5s...");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    backoff = 1;
+            tokio::select! {
+                _ = shutdown_rx_clone.changed() => {
+                    info!("Shutdown signal received, exiting consumer");
+                    break;
                 }
-                Err(e) => {
-                    error!(
-                        "AMQP consumer error: {}, reconnecting in {}s...",
-                        e, backoff
-                    );
-                    tokio::time::sleep(Duration::from_secs(backoff)).await;
-                    backoff = std::cmp::min(backoff * 2, 60);
+                result = self.connect_and_consume() => {
+                    match result {
+                        Ok(ConnectionResult::Shutdown) => {
+                            info!("Shutdown signal received, exiting consumer");
+                            break;
+                        }
+                        Ok(ConnectionResult::Disconnected) => {
+                            info!("AMQP consumer disconnected, reconnecting in 5s...");
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            backoff = 1;
+                        }
+                        Err(e) => {
+                            error!("AMQP consumer error: {}, reconnecting in {}s", e, backoff);
+                            tokio::time::sleep(Duration::from_secs(backoff)).await;
+                            backoff = std::cmp::min(backoff * 2, 60);
+                        }
+                    }
                 }
             }
         }
     }
 
-    async fn connect_and_consume(&mut self) -> Result<(), Box<dyn error::Error + Send + Sync>> {
+    async fn connect_and_consume(
+        &mut self,
+    ) -> Result<ConnectionResult, Box<dyn error::Error + Send + Sync>> {
         let conn = Connection::connect(&self.amqp_url, ConnectionProperties::default()).await?;
         let channel = conn.create_channel().await?;
 
@@ -88,6 +105,9 @@ impl ConsumerActor {
 
         loop {
             tokio::select! {
+                _ = self.shutdown_rx.changed() => {
+                    return Ok(ConnectionResult::Shutdown);
+                }
                 Some(delivery) = consumer.next() => {
                     let delivery = match delivery {
                         Ok(d) => d,
@@ -138,7 +158,7 @@ impl ConsumerActor {
             }
         }
 
-        Ok(())
+        Ok(ConnectionResult::Disconnected)
     }
 
     fn parse_delivery(
@@ -264,11 +284,13 @@ mod tests {
 
     #[test]
     fn parse_delivery_success() {
+        let (_, dummy_rx) = watch::channel(());
         let actor = ConsumerActor {
             amqp_url: "".to_string(),
             queue_name: "".to_string(),
             engine_tx: mpsc::channel(1).0,
             ack_rx: mpsc::channel(1).1,
+            shutdown_rx: dummy_rx,
         };
 
         let payload = r#"{
@@ -291,11 +313,13 @@ mod tests {
 
     #[test]
     fn parse_delivery_invalid_currency() {
+        let (_, dummy_rx) = watch::channel(());
         let actor = ConsumerActor {
             amqp_url: "".to_string(),
             queue_name: "".to_string(),
             engine_tx: mpsc::channel(1).0,
             ack_rx: mpsc::channel(1).1,
+            shutdown_rx: dummy_rx,
         };
 
         let payload = r#"{
@@ -315,11 +339,13 @@ mod tests {
 
     #[test]
     fn parse_delivery_invalid_json() {
+        let (_, dummy_rx) = watch::channel(());
         let actor = ConsumerActor {
             amqp_url: "".to_string(),
             queue_name: "".to_string(),
             engine_tx: mpsc::channel(1).0,
             ack_rx: mpsc::channel(1).1,
+            shutdown_rx: dummy_rx,
         };
 
         let payload = "invalid json payload";

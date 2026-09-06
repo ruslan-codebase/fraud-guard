@@ -3,7 +3,7 @@ use fraud_guard_domain::{
     Decision, DecisionRepository, DomainError, TransactionRepository, TransactionRequest,
 };
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::{error, info};
 
 pub struct SinkActor {
@@ -11,19 +11,25 @@ pub struct SinkActor {
     pub decision_repo: Arc<dyn DecisionRepository>,
     pub rx: mpsc::Receiver<(TransactionRequest, Decision, CorrelationId)>,
     pub ack_tx: mpsc::Sender<(CorrelationId, Result<(), DomainError>)>,
+    pub shutdown_rx: watch::Receiver<()>,
 }
 
 impl SinkActor {
     pub async fn run(mut self) {
-        while let Some((tx, decision, corr_id)) = self.rx.recv().await {
-            let result = self.insert_transaction_and_decision(&tx, &decision).await;
-            if let Err(e) = self.ack_tx.send((corr_id, result)).await {
-                error!("Failed to send ack result for {}: {}", corr_id, e);
-            } else {
-                info!(
-                    "Transaction {} persisted with decision {:?}",
-                    tx.id, decision
-                );
+        loop {
+            tokio::select! {
+                _ = self.shutdown_rx.changed() => {
+                    info!("Shutdown signal received, exiting sink");
+                    break;
+                }
+                Some((tx, decision, corr_id)) = self.rx.recv() => {
+                    let result = self.insert_transaction_and_decision(&tx, &decision).await;
+                    if let Err(e) = self.ack_tx.send((corr_id, result)).await {
+                        error!("Failed to send ack result for {}: {}", corr_id, e);
+                    } else {
+                        info!("Transaction {} persisted with decision {:?}", tx.id, decision);
+                    }
+                }
             }
         }
     }
@@ -116,12 +122,14 @@ mod tests {
 
         let (sink_tx, sink_rx) = mpsc::channel(10);
         let (ack_tx, _) = mpsc::channel(10);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(());
 
         let sink_actor = SinkActor {
             tx_repo: tx_repo.clone(),
             decision_repo: decision_repo.clone(),
             rx: sink_rx,
             ack_tx,
+            shutdown_rx,
         };
 
         tokio::spawn(sink_actor.run());
@@ -161,12 +169,14 @@ mod tests {
 
         let (sink_tx, sink_rx) = mpsc::channel(10);
         let (ack_tx, _) = mpsc::channel(10);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(());
 
         let sink_actor = SinkActor {
             tx_repo: tx_repo.clone(),
             decision_repo: decision_repo.clone(),
             rx: sink_rx,
             ack_tx,
+            shutdown_rx,
         };
 
         tokio::spawn(sink_actor.run());
