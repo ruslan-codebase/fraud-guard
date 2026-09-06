@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO transactions (transaction_id, source_account, destination_account, amount, currency, timestamp)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            ON CONFLICT (transaction_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "df44cfc9c7c73554af3bbb34369ccba41a804765c62b0e1ea723b54948dc0b6e"
+}
