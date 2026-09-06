@@ -4,7 +4,10 @@ mod rules_cache;
 
 use actors::{EngineActor, SinkActor};
 use config::Config;
+use fraud_guard_api::amqp::ConsumerActor;
+use fraud_guard_api::amqp::CorrelationId;
 use fraud_guard_domain::DecisionRepository;
+use fraud_guard_domain::DomainError;
 use fraud_guard_domain::RuleRepository;
 use fraud_guard_domain::TransactionRepository;
 use fraud_guard_storage::postgres::{
@@ -29,7 +32,6 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         .init();
 
     let pool = sqlx::PgPool::connect(&config.database_url).await?;
-
     let tx_repo: Arc<dyn TransactionRepository> =
         Arc::new(PostgresTransactionRepository::new(pool.clone()));
     let rule_repo: Arc<dyn RuleRepository> = Arc::new(PostgresRuleRepository::new(pool.clone()));
@@ -38,13 +40,21 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
 
     let rules = rule_repo.load_active_rules().await?;
     let rules_arc = Arc::new(rules);
-    tracing::info!("Loaded {} active rules", rules_arc.len());
-
+    info!("Loaded {} active rules", rules_arc.len());
     let (rules_tx, rules_rx) = watch::channel(rules_arc);
     start_rules_cache_refresh(rule_repo, config.rules_refresh_interval_secs, rules_tx);
 
-    let (_engine_tx, engine_rx) = mpsc::channel(100);
+    let (engine_tx, engine_rx) = mpsc::channel(100);
     let (sink_tx, sink_rx) = mpsc::channel(100);
+    let (ack_tx, ack_rx) = mpsc::channel::<(CorrelationId, Result<(), DomainError>)>(100);
+
+    let consumer = ConsumerActor {
+        amqp_url: config.amqp_url.clone(),
+        queue_name: "transaction.evaluation".to_string(),
+        engine_tx: engine_tx.clone(),
+        ack_rx,
+    };
+    tokio::spawn(consumer.run());
 
     let engine = EngineActor {
         rules_rx,
@@ -58,6 +68,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         tx_repo: tx_repo.clone(),
         decision_repo: decision_repo.clone(),
         rx: sink_rx,
+        ack_tx,
     };
     tokio::spawn(sink.run());
 

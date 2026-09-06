@@ -11,7 +11,7 @@ pub enum ConfigError {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub database_url: String,
-    // pub amqp_url: String,
+    pub amqp_url: String,
     pub log_level: String,
     pub rules_refresh_interval_secs: u64,
 }
@@ -23,8 +23,8 @@ impl Config {
         let database_url = env::var("DATABASE_URL")
             .map_err(|e| ConfigError::Generic(format!("DATABASE_URL: {}", e)))?;
 
-        // let amqp_url =
-        //     env::var("AMQP_URL").map_err(|e| ConfigError::Generic(format!("AMQP_URL: {}", e)))?;
+        let amqp_url =
+            env::var("AMQP_URL").map_err(|e| ConfigError::Generic(format!("AMQP_URL: {}", e)))?;
 
         let log_level =
             env::var("RUST_LOG").map_err(|e| ConfigError::Generic(format!("RUST_LOG: {}", e)))?;
@@ -41,7 +41,7 @@ impl Config {
 
         Ok(Config {
             database_url,
-            // amqp_url,
+            amqp_url,
             log_level,
             rules_refresh_interval_secs,
         })

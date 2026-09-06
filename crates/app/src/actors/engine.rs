@@ -1,3 +1,4 @@
+use fraud_guard_api::amqp::CorrelationId;
 use fraud_guard_domain::{
     Decision, Rule, TransactionRepository, TransactionRequest, TriggeredRule, Verdict,
 };
@@ -8,8 +9,8 @@ use tracing::{error, info, trace};
 pub struct EngineActor {
     pub rules_rx: watch::Receiver<Arc<Vec<Rule>>>,
     pub repo: Arc<dyn TransactionRepository>,
-    pub rx: mpsc::Receiver<TransactionRequest>,
-    pub sink_tx: mpsc::Sender<(TransactionRequest, Decision)>,
+    pub rx: mpsc::Receiver<(TransactionRequest, CorrelationId)>,
+    pub sink_tx: mpsc::Sender<(TransactionRequest, Decision, CorrelationId)>,
 }
 
 impl EngineActor {
@@ -18,10 +19,10 @@ impl EngineActor {
 
         loop {
             tokio::select! {
-                Some(tx) = self.rx.recv() => {
+                Some((tx, corr_id)) = self.rx.recv() => {
                     if let Err(e) = tx.validate() {
                         error!("Transaction validation failed: {}", e);
-                        let _ = self.sink_tx.send((tx, Decision::Decline { reason: e.to_string() })).await;
+                        let _ = self.sink_tx.send((tx, Decision::Decline { reason: e.to_string() }, corr_id)).await;
                         continue;
                     }
 
@@ -53,7 +54,7 @@ impl EngineActor {
                         Decision::Review { triggered_rules: triggered }
                     };
 
-                    if let Err(e) = self.sink_tx.send((tx, decision)).await {
+                    if let Err(e) = self.sink_tx.send((tx, decision, corr_id)).await {
                         error!("Failed to send decision to sink: {}", e);
                     }
                 }
@@ -145,9 +146,10 @@ mod tests {
         tokio::spawn(engine.run());
 
         let tx = test_transaction(100);
-        tx_tx.send(tx).await.unwrap();
+        let corr_id: CorrelationId = 123;
+        tx_tx.send((tx, corr_id)).await.unwrap();
 
-        let (received_tx, decision) = sink_rx.recv().await.unwrap();
+        let (received_tx, decision, _) = sink_rx.recv().await.unwrap();
         assert_eq!(received_tx.amount, 100);
         assert_eq!(decision, Decision::Accept);
 
@@ -177,9 +179,10 @@ mod tests {
         tokio::spawn(engine.run());
 
         let tx = test_transaction(100);
-        tx_tx.send(tx).await.unwrap();
+        let corr_id: CorrelationId = 123;
+        tx_tx.send((tx, corr_id)).await.unwrap();
 
-        let (received_tx, decision) = sink_rx.recv().await.unwrap();
+        let (received_tx, decision, _) = sink_rx.recv().await.unwrap();
         assert_eq!(received_tx.amount, 100);
         match decision {
             Decision::Review { triggered_rules } => {
@@ -218,9 +221,10 @@ mod tests {
             currency: Currency::Rub,
             timestamp: Utc::now(),
         };
-        tx_tx.send(tx).await.unwrap();
+        let corr_id: CorrelationId = 123;
+        tx_tx.send((tx, corr_id)).await.unwrap();
 
-        let (_received_tx, decision) = sink_rx.recv().await.unwrap();
+        let (_received_tx, decision, _) = sink_rx.recv().await.unwrap();
         match decision {
             Decision::Decline { reason } => {
                 assert!(reason.contains("Source and destination accounts must differ"));
@@ -252,8 +256,9 @@ mod tests {
         tokio::spawn(engine.run());
 
         let tx1 = test_transaction(50);
-        tx_tx.send(tx1).await.unwrap();
-        let (_, decision1) = sink_rx.recv().await.unwrap();
+        let corr_id1: CorrelationId = 123;
+        tx_tx.send((tx1, corr_id1)).await.unwrap();
+        let (_, decision1, _) = sink_rx.recv().await.unwrap();
         assert_eq!(decision1, Decision::Accept);
 
         let rules2 = vec![create_rule(
@@ -266,8 +271,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let tx2 = test_transaction(50);
-        tx_tx.send(tx2).await.unwrap();
-        let (_, decision2) = sink_rx.recv().await.unwrap();
+        let corr_id2: CorrelationId = 456;
+        tx_tx.send((tx2, corr_id2)).await.unwrap();
+        let (_, decision2, _) = sink_rx.recv().await.unwrap();
         match decision2 {
             Decision::Review { triggered_rules } => {
                 assert_eq!(triggered_rules.len(), 1);

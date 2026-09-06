@@ -1,15 +1,16 @@
+use super::CorrelationId;
 use chrono::{DateTime, Utc};
-use fraud_guard_domain::{AccountId, Currency, TransactionId, TransactionRequest};
+use fraud_guard_domain::{AccountId, Currency, DomainError, TransactionId, TransactionRequest};
 use lapin::{
-    Channel, Connection, ConnectionProperties,
+    Connection, ConnectionProperties,
     message::Delivery,
     options::{BasicAckOptions, BasicConsumeOptions, BasicNackOptions, QueueDeclareOptions},
     types::FieldTable,
 };
 use serde::Deserialize;
-use std::error;
 use std::str::FromStr;
 use std::time::Duration;
+use std::{collections::HashMap, error};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tracing::{error, info};
@@ -27,26 +28,35 @@ pub struct TransactionMessage {
 pub struct ConsumerActor {
     pub amqp_url: String,
     pub queue_name: String,
-    pub engine_tx: mpsc::Sender<TransactionRequest>,
+    pub engine_tx: mpsc::Sender<(TransactionRequest, CorrelationId)>,
+    pub ack_rx: mpsc::Receiver<(CorrelationId, Result<(), DomainError>)>,
 }
 
 impl ConsumerActor {
-    pub async fn run(self) {
+    pub async fn run(mut self) {
+        let mut backoff = 1;
+
         loop {
             info!("Attempting to connect to AMQP...");
             match self.connect_and_consume().await {
                 Ok(_) => {
                     info!("AMQP consumer diconnected, reconnecting in 5s...");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    backoff = 1;
                 }
                 Err(e) => {
-                    error!("AMQP consumer error: {}, reconnecting in 5s...", e);
+                    error!(
+                        "AMQP consumer error: {}, reconnecting in {}s...",
+                        e, backoff
+                    );
+                    tokio::time::sleep(Duration::from_secs(backoff)).await;
+                    backoff = std::cmp::min(backoff * 2, 60);
                 }
             }
-            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
 
-    async fn connect_and_consume(&self) -> Result<(), Box<dyn error::Error + Send + Sync>> {
+    async fn connect_and_consume(&mut self) -> Result<(), Box<dyn error::Error + Send + Sync>> {
         let conn = Connection::connect(&self.amqp_url, ConnectionProperties::default()).await?;
         let channel = conn.create_channel().await?;
 
@@ -74,32 +84,67 @@ impl ConsumerActor {
 
         info!("AMQP consumer started on queue {}", self.queue_name);
 
-        while let Some(delivery) = consumer.next().await {
-            match delivery {
-                Ok(delivery) => {
-                    let delivery_tag = delivery.delivery_tag;
-                    if let Err(e) = self.handle_delivery(&channel, delivery).await {
-                        error!("Failed to process message: {}", e);
-                        let _ = channel
-                            .basic_nack(delivery_tag, BasicNackOptions::default())
-                            .await;
+        let mut pending: HashMap<CorrelationId, Delivery> = HashMap::new();
+
+        loop {
+            tokio::select! {
+                Some(delivery) = consumer.next() => {
+                    let delivery = match delivery {
+                        Ok(d) => d,
+                        Err(e) => {
+                            error!("Consumer delivery error: {}", e);
+                            return Err(e.into());
+                        }
+                    };
+                    let corr_id = delivery.delivery_tag;
+                    let tx = match self.parse_delivery(&delivery) {
+                        Ok(tx) => tx,
+                        Err(e) => {
+                            error!("Failed to parse delivery: {}", e);
+                            let _ = channel.basic_nack(corr_id, BasicNackOptions::default()).await;
+                            continue;
+                        }
+                    };
+                    if let Err(e) = self.engine_tx.send((tx, corr_id)).await {
+                        error!("Engine channel closed: {}", e);
+                        let _ = channel.basic_nack(corr_id, BasicNackOptions::default()).await;
+                        continue;
+                    }
+                    pending.insert(corr_id, delivery);
+                    info!("Transaction {} sent to engine", corr_id);
+                }
+                Some((corr_id, result)) = self.ack_rx.recv() => {
+                    if let Some(delivery) = pending.remove(&corr_id) {
+                        match result {
+                            Ok(()) => {
+                                if let Err(e) = channel.basic_ack(delivery.delivery_tag, BasicAckOptions::default()).await {
+                                    error!("Failed to ack message {}: {}", corr_id, e);
+                                } else {
+                                    info!("Acked message {}", corr_id);
+                                }
+                            }
+                            Err(e) => {
+                                error!("Processing failed for {}: {}, nacking", corr_id, e);
+                                if let Err(e) = channel.basic_nack(delivery.delivery_tag, BasicNackOptions::default()).await {
+                                    error!("Failed to nack message {}: {}", corr_id, e);
+                                }
+                            }
+                        }
+                    } else {
+                        error!("Received ack for unknown correlation_id {}", corr_id);
                     }
                 }
-                Err(e) => {
-                    error!("Consumer error: {}", e);
-                    return Err(e.into());
-                }
+                else => break,
             }
         }
 
         Ok(())
     }
 
-    async fn handle_delivery(
+    fn parse_delivery(
         &self,
-        channel: &Channel,
-        delivery: Delivery,
-    ) -> Result<(), Box<dyn error::Error + Send + Sync>> {
+        delivery: &Delivery,
+    ) -> Result<TransactionRequest, Box<dyn error::Error + Send + Sync>> {
         let payload = String::from_utf8_lossy(&delivery.data);
         let msg: TransactionMessage = serde_json::from_str(&payload)?;
 
@@ -119,15 +164,7 @@ impl ConsumerActor {
             currency,
             timestamp,
         };
-
-        self.engine_tx.send(tx).await?;
-
-        channel
-            .basic_ack(delivery.delivery_tag, BasicAckOptions::default())
-            .await?;
-
-        info!("Processed transaction {}", msg.transaction_id);
-        Ok(())
+        Ok(tx)
     }
 }
 
@@ -223,5 +260,72 @@ mod tests {
             }
             _ => panic!("Expected Validation error"),
         }
+    }
+
+    #[test]
+    fn parse_delivery_success() {
+        let actor = ConsumerActor {
+            amqp_url: "".to_string(),
+            queue_name: "".to_string(),
+            engine_tx: mpsc::channel(1).0,
+            ack_rx: mpsc::channel(1).1,
+        };
+
+        let payload = r#"{
+            "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
+            "source_account": "1111222233334444",
+            "destination_account": "5555666677778888",
+            "amount": 10000,
+            "currency": "RUB",
+            "timestamp": 1609459200
+        }"#;
+
+        let delivery = Delivery::mock(42, "".into(), "".into(), false, payload.as_bytes().to_vec());
+
+        let tx = actor.parse_delivery(&delivery).unwrap();
+        assert_eq!(tx.amount, 10000);
+        assert_eq!(tx.source_account.as_str(), "1111222233334444");
+        assert_eq!(tx.destination_account.as_str(), "5555666677778888");
+        assert_eq!(tx.currency, Currency::Rub)
+    }
+
+    #[test]
+    fn parse_delivery_invalid_currency() {
+        let actor = ConsumerActor {
+            amqp_url: "".to_string(),
+            queue_name: "".to_string(),
+            engine_tx: mpsc::channel(1).0,
+            ack_rx: mpsc::channel(1).1,
+        };
+
+        let payload = r#"{
+            "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
+            "source_account": "1111222233334444",
+            "destination_account": "5555666677778888",
+            "amount": 10000,
+            "currency": "XYZ",
+            "timestamp": 1609459200
+        }"#;
+
+        let delivery = Delivery::mock(42, "".into(), "".into(), false, payload.as_bytes().to_vec());
+
+        let err = actor.parse_delivery(&delivery).unwrap_err();
+        assert!(err.to_string().contains("Invalid currency"));
+    }
+
+    #[test]
+    fn parse_delivery_invalid_json() {
+        let actor = ConsumerActor {
+            amqp_url: "".to_string(),
+            queue_name: "".to_string(),
+            engine_tx: mpsc::channel(1).0,
+            ack_rx: mpsc::channel(1).1,
+        };
+
+        let payload = "invalid json payload";
+        let delivery = Delivery::mock(42, "".into(), "".into(), false, payload.as_bytes().to_vec());
+
+        let err = actor.parse_delivery(&delivery).unwrap_err();
+        assert!(err.to_string().contains("expected"));
     }
 }

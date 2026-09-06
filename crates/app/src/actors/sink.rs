@@ -1,3 +1,4 @@
+use fraud_guard_api::amqp::CorrelationId;
 use fraud_guard_domain::{
     Decision, DecisionRepository, DomainError, TransactionRepository, TransactionRequest,
 };
@@ -8,15 +9,16 @@ use tracing::{error, info};
 pub struct SinkActor {
     pub tx_repo: Arc<dyn TransactionRepository>,
     pub decision_repo: Arc<dyn DecisionRepository>,
-    pub rx: mpsc::Receiver<(TransactionRequest, Decision)>,
+    pub rx: mpsc::Receiver<(TransactionRequest, Decision, CorrelationId)>,
+    pub ack_tx: mpsc::Sender<(CorrelationId, Result<(), DomainError>)>,
 }
 
 impl SinkActor {
     pub async fn run(mut self) {
-        while let Some((tx, decision)) = self.rx.recv().await {
-            if let Err(e) = self.insert_transaction_and_decision(&tx, &decision).await {
-                error!("Failed to persist transaction and decision: {}", e);
-                // TODO: add retry
+        while let Some((tx, decision, corr_id)) = self.rx.recv().await {
+            let result = self.insert_transaction_and_decision(&tx, &decision).await;
+            if let Err(e) = self.ack_tx.send((corr_id, result)).await {
+                error!("Failed to send ack result for {}: {}", corr_id, e);
             } else {
                 info!(
                     "Transaction {} persisted with decision {:?}",
@@ -113,16 +115,19 @@ mod tests {
         let decision_repo = Arc::new(MockDecisionRepo::default());
 
         let (sink_tx, sink_rx) = mpsc::channel(10);
+        let (ack_tx, _) = mpsc::channel(10);
 
         let sink_actor = SinkActor {
             tx_repo: tx_repo.clone(),
             decision_repo: decision_repo.clone(),
             rx: sink_rx,
+            ack_tx,
         };
 
         tokio::spawn(sink_actor.run());
 
         let tx = test_transaction(100);
+        let corr_id: CorrelationId = 123;
         let triggered = vec![TriggeredRule {
             code: "TEST001".to_string(),
             reason: "Exceeds limit".to_string(),
@@ -131,7 +136,10 @@ mod tests {
             triggered_rules: triggered,
         };
 
-        sink_tx.send((tx.clone(), decision.clone())).await.unwrap();
+        sink_tx
+            .send((tx.clone(), decision.clone(), corr_id))
+            .await
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
@@ -152,19 +160,22 @@ mod tests {
         let decision_repo = Arc::new(MockDecisionRepo::default());
 
         let (sink_tx, sink_rx) = mpsc::channel(10);
+        let (ack_tx, _) = mpsc::channel(10);
 
         let sink_actor = SinkActor {
             tx_repo: tx_repo.clone(),
             decision_repo: decision_repo.clone(),
             rx: sink_rx,
+            ack_tx,
         };
 
         tokio::spawn(sink_actor.run());
 
         for i in 0..3 {
             let tx = test_transaction(100 + i);
+            let corr_id: CorrelationId = 123 + i as u64;
             let decision = Decision::Accept;
-            sink_tx.send((tx, decision)).await.unwrap();
+            sink_tx.send((tx, decision, corr_id)).await.unwrap();
         }
 
         drop(sink_tx);
