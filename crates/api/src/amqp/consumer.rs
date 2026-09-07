@@ -2,10 +2,13 @@ use super::CorrelationId;
 use chrono::{DateTime, Utc};
 use fraud_guard_domain::{AccountId, Currency, DomainError, TransactionId, TransactionRequest};
 use lapin::{
-    Connection, ConnectionProperties,
+    Connection, ConnectionProperties, ExchangeKind,
     message::Delivery,
-    options::{BasicAckOptions, BasicConsumeOptions, BasicNackOptions, QueueDeclareOptions},
-    types::FieldTable,
+    options::{
+        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
+        QueueBindOptions, QueueDeclareOptions,
+    },
+    types::{FieldTable, ShortString},
 };
 use serde::Deserialize;
 use std::str::FromStr;
@@ -14,6 +17,9 @@ use std::{collections::HashMap, error};
 use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 use tracing::{error, info};
+
+const DLX_EXCHANGE: &str = "dlx.transaction";
+const DLQ_QUEUE: &str = "transaction.evaluation.dlq";
 
 #[derive(Debug, Deserialize)]
 pub struct TransactionMessage {
@@ -78,6 +84,51 @@ impl ConsumerActor {
         let channel = conn.create_channel().await?;
 
         channel
+            .exchange_declare(
+                DLX_EXCHANGE.into(),
+                ExchangeKind::Direct,
+                ExchangeDeclareOptions {
+                    durable: true,
+                    ..Default::default()
+                },
+                FieldTable::default(),
+            )
+            .await?;
+
+        channel
+            .queue_declare(
+                DLQ_QUEUE.into(),
+                QueueDeclareOptions {
+                    durable: true,
+                    exclusive: false,
+                    auto_delete: false,
+                    ..Default::default()
+                },
+                FieldTable::default(),
+            )
+            .await?;
+
+        channel
+            .queue_bind(
+                DLQ_QUEUE.into(),
+                DLX_EXCHANGE.into(),
+                DLQ_QUEUE.into(),
+                QueueBindOptions::default(),
+                FieldTable::default(),
+            )
+            .await?;
+
+        let mut args = FieldTable::default();
+        args.insert(
+            "x-dead-letter-exchange".into(),
+            ShortString::from(DLX_EXCHANGE).into(),
+        );
+        args.insert(
+            "x-dead-letter-routing-key".into(),
+            ShortString::from(DLQ_QUEUE).into(),
+        );
+
+        channel
             .queue_declare(
                 self.queue_name.as_str().into(),
                 QueueDeclareOptions {
@@ -86,7 +137,7 @@ impl ConsumerActor {
                     auto_delete: false,
                     ..Default::default()
                 },
-                FieldTable::default(),
+                args,
             )
             .await?;
 
