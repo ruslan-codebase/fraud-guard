@@ -875,6 +875,8 @@ dependencies = [
  "fraud-guard-domain",
  "serde_json",
  "sqlx",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

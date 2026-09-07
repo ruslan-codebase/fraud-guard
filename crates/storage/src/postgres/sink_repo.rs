@@ -1,6 +1,9 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use fraud_guard_domain::{Decision, DomainError, TransactionRequest};
 use sqlx::PgPool;
+use tracing::warn;
 
 use crate::sink_repo::SinkRepository;
 
@@ -14,9 +17,8 @@ impl PostgresSinkRepository {
     }
 }
 
-#[async_trait]
-impl SinkRepository for PostgresSinkRepository {
-    async fn insert_transaction_and_decision(
+impl PostgresSinkRepository {
+    async fn attempt_insert_transaction_and_decision(
         &self,
         tx: &TransactionRequest,
         decision: &Decision,
@@ -81,5 +83,37 @@ impl SinkRepository for PostgresSinkRepository {
             })?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl SinkRepository for PostgresSinkRepository {
+    async fn insert_transaction_and_decision(
+        &self,
+        tx: &TransactionRequest,
+        decision: &Decision,
+    ) -> Result<(), DomainError> {
+        const MAX_ATTEMPTS: u32 = 3;
+        let mut attempt = 0;
+
+        loop {
+            attempt += 1;
+            match self
+                .attempt_insert_transaction_and_decision(tx, decision)
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(e) if attempt < MAX_ATTEMPTS => {
+                    let delay = Duration::from_millis(100 * 2_u64.pow(attempt - 1));
+                    warn!(
+                        "Got DB error: retrying in {:?} (attempt {}/{}): {}",
+                        delay, attempt, MAX_ATTEMPTS, e
+                    );
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 }
