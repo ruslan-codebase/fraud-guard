@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
     let engine = EngineActor {
         rules_rx,
         repo: tx_repo.clone(),
-        rx: engine_rx,
+        engine_rx,
         sink_tx: sink_tx.clone(),
         shutdown_rx: shutdown_rx.clone(),
     };
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
 
     let sink = SinkActor {
         sink_repo: sink_repo.clone(),
-        rx: sink_rx,
+        sink_rx,
         ack_tx,
         shutdown_rx: shutdown_rx.clone(),
     };

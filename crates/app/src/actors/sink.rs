@@ -9,7 +9,7 @@ pub struct SinkActor {
     // pub tx_repo: Arc<dyn TransactionRepository>,
     // pub decision_repo: Arc<dyn DecisionRepository>,
     pub sink_repo: Arc<dyn SinkRepository>,
-    pub rx: mpsc::Receiver<(TransactionRequest, Decision, CorrelationId)>,
+    pub sink_rx: mpsc::Receiver<(TransactionRequest, Decision, CorrelationId)>,
     pub ack_tx: mpsc::Sender<(CorrelationId, Result<(), DomainError>)>,
     pub shutdown_rx: watch::Receiver<()>,
 }
@@ -22,7 +22,7 @@ impl SinkActor {
                     info!("Shutdown signal received, exiting sink");
                     break;
                 }
-                Some((tx, decision, corr_id)) = self.rx.recv() => {
+                Some((tx, decision, corr_id)) = self.sink_rx.recv() => {
                     let result = self.sink_repo.insert_transaction_and_decision(&tx, &decision).await;
                     if let Err(e) = self.ack_tx.send((corr_id, result)).await {
                         error!("Failed to send ack result for {}: {}", corr_id, e);
@@ -89,7 +89,7 @@ mod tests {
 
         let sink_actor = SinkActor {
             sink_repo: sink_repo.clone(),
-            rx: sink_rx,
+            sink_rx,
             ack_tx,
             shutdown_rx,
         };
@@ -130,7 +130,7 @@ mod tests {
 
         let sink_actor = SinkActor {
             sink_repo: sink_repo.clone(),
-            rx: sink_rx,
+            sink_rx,
             ack_tx,
             shutdown_rx,
         };

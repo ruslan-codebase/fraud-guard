@@ -9,7 +9,7 @@ use tracing::{error, info, trace};
 pub struct EngineActor {
     pub rules_rx: watch::Receiver<Arc<Vec<Rule>>>,
     pub repo: Arc<dyn TransactionRepository>,
-    pub rx: mpsc::Receiver<(TransactionRequest, CorrelationId)>,
+    pub engine_rx: mpsc::Receiver<(TransactionRequest, CorrelationId)>,
     pub sink_tx: mpsc::Sender<(TransactionRequest, Decision, CorrelationId)>,
     pub shutdown_rx: watch::Receiver<()>,
 }
@@ -24,7 +24,7 @@ impl EngineActor {
                     info!("Shutdown signal received, exiting engine");
                     break;
                 }
-                Some((tx, corr_id)) = self.rx.recv() => {
+                Some((tx, corr_id)) = self.engine_rx.recv() => {
                     if let Err(e) = tx.validate() {
                         error!("Transaction validation failed: {}", e);
                         let _ = self.sink_tx.send((tx, Decision::Decline { reason: e.to_string() }, corr_id)).await;
@@ -145,7 +145,7 @@ mod tests {
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
-            rx: rx_tx,
+            engine_rx: rx_tx,
             sink_tx: sink_tx.clone(),
             shutdown_rx,
         };
@@ -181,7 +181,7 @@ mod tests {
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
-            rx: rx_tx,
+            engine_rx: rx_tx,
             sink_tx: sink_tx.clone(),
             shutdown_rx,
         };
@@ -218,7 +218,7 @@ mod tests {
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
-            rx: rx_tx,
+            engine_rx: rx_tx,
             sink_tx: sink_tx.clone(),
             shutdown_rx,
         };
@@ -264,7 +264,7 @@ mod tests {
         let engine = EngineActor {
             rules_rx,
             repo: repo.clone(),
-            rx: rx_tx,
+            engine_rx: rx_tx,
             sink_tx: sink_tx.clone(),
             shutdown_rx,
         };
