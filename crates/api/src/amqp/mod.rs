@@ -1,5 +1,3 @@
-pub mod consumer;
-
-pub use consumer::ConsumerActor;
+pub mod amqp_consumer;
 
 pub type CorrelationId = u64;

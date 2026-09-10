@@ -17,3 +17,5 @@ uuid = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 tokio-stream = { workspace = true }
+kameo = { workspace = true }
+async-trait = { workspace = true }

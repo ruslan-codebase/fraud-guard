@@ -2,23 +2,19 @@ mod actors;
 mod config;
 mod rules_cache;
 
-use actors::{EngineActor, SinkActor};
+use crate::actors::messages::{
+    AckMessage, EvaluateTransactionRequest, PersistResults, StartConsuming, UpdateRules,
+};
+use actors::{ConsumerActor, EngineActor, SinkActor};
 use config::Config;
-use fraud_guard_api::amqp::ConsumerActor;
-use fraud_guard_api::amqp::CorrelationId;
-use fraud_guard_domain::DomainError;
-use fraud_guard_domain::RuleRepository;
-use fraud_guard_domain::TransactionRepository;
+use fraud_guard_domain::{RuleRepository, TransactionRepository};
 use fraud_guard_storage::postgres::PostgresSinkRepository;
 use fraud_guard_storage::postgres::{PostgresRuleRepository, PostgresTransactionRepository};
 use fraud_guard_storage::sink_repo::SinkRepository;
-use rules_cache::start_rules_cache_refresh;
-
+use kameo::actor::Spawn;
 use std::error;
 use std::sync::Arc;
-use std::time;
 use tokio::main;
-use tokio::sync::{mpsc, watch};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -31,57 +27,55 @@ async fn main() -> Result<(), Box<dyn error::Error>> {
         .init();
 
     let pool = sqlx::PgPool::connect(&config.database_url).await?;
+
     let tx_repo: Arc<dyn TransactionRepository> =
         Arc::new(PostgresTransactionRepository::new(pool.clone()));
     let rule_repo: Arc<dyn RuleRepository> = Arc::new(PostgresRuleRepository::new(pool.clone()));
-    // let decision_repo: Arc<dyn DecisionRepository> =
-    //     Arc::new(PostgresDecisionRepository::new(pool.clone()));
     let sink_repo: Arc<dyn SinkRepository> = Arc::new(PostgresSinkRepository::new(pool.clone()));
 
-    let rules = rule_repo.load_active_rules().await?;
-    let rules_arc = Arc::new(rules);
-    info!("Loaded {} active rules", rules_arc.len());
-    let (rules_tx, rules_rx) = watch::channel(rules_arc);
-    start_rules_cache_refresh(rule_repo, config.rules_refresh_interval_secs, rules_tx);
+    let initial_rules = rule_repo.load_active_rules().await?;
+    info!("Loaded {} active rules", initial_rules.len());
 
-    let (engine_tx, engine_rx) = mpsc::channel(100);
-    let (sink_tx, sink_rx) = mpsc::channel(100);
-    let (ack_tx, ack_rx) = mpsc::channel::<(CorrelationId, Result<(), DomainError>)>(100);
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let consumer_ref = ConsumerActor::spawn(ConsumerActor::new(
+        config.amqp_url.clone(),
+        "transaction.evaluation".to_string(),
+    ));
+    let sink_ref = SinkActor::spawn(SinkActor::new(
+        sink_repo.clone(),
+        consumer_ref.clone().recipient::<AckMessage>(),
+    ));
+    let engine_ref = EngineActor::spawn(EngineActor::new(
+        tx_repo.clone(),
+        sink_ref.clone().recipient::<PersistResults>(),
+        Some(initial_rules),
+    ));
 
-    let consumer = ConsumerActor {
-        amqp_url: config.amqp_url.clone(),
-        queue_name: "transaction.evaluation".to_string(),
-        engine_tx: engine_tx.clone(),
-        ack_rx,
-        shutdown_rx: shutdown_rx.clone(),
-    };
-    tokio::spawn(consumer.run());
+    consumer_ref
+        .tell(StartConsuming {
+            engine_ref: engine_ref.clone().recipient::<EvaluateTransactionRequest>(),
+        })
+        .await?;
 
-    let engine = EngineActor {
-        rules_rx,
-        repo: tx_repo.clone(),
-        engine_rx,
-        sink_tx: sink_tx.clone(),
-        shutdown_rx: shutdown_rx.clone(),
-    };
-    tokio::spawn(engine.run());
-
-    let sink = SinkActor {
-        sink_repo: sink_repo.clone(),
-        sink_rx,
-        ack_tx,
-        shutdown_rx: shutdown_rx.clone(),
-    };
-    tokio::spawn(sink.run());
+    rules_cache::start_rules_cache_refresh(
+        rule_repo,
+        config.rules_refresh_interval_secs,
+        engine_ref.clone().recipient::<UpdateRules>(),
+    );
 
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for shutdown signal");
     info!("Shutting down gracefully...");
-    let _ = shutdown_tx.send(());
 
-    tokio::time::sleep(time::Duration::from_secs(2)).await;
+    consumer_ref.stop_gracefully().await?;
+    consumer_ref.wait_for_shutdown().await;
+
+    engine_ref.stop_gracefully().await?;
+    engine_ref.wait_for_shutdown().await;
+
+    sink_ref.stop_gracefully().await?;
+    sink_ref.wait_for_shutdown().await;
+
     info!("Shutdown complete");
     Ok(())
 }
